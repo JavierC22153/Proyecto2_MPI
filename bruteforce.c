@@ -6,27 +6,19 @@
 #include <openssl/des.h>
 
 void decrypt(long key, char *ciph, int len){
-  // Preparar la llave DES
   DES_cblock des_key;
   DES_key_schedule schedule;
   
-  // Convertir long a DES key con paridad
   long k = 0;
   for(int i=0; i<8; ++i){
     key <<= 1;
     k += (key & (0xFE << i*8));
   }
   
-  // Copiar a DES_cblock
   memcpy(&des_key, &k, 8);
-  
-  // Establecer paridad
   DES_set_odd_parity(&des_key);
-  
-  // Crear key schedule
   DES_set_key_unchecked(&des_key, &schedule);
   
-  // Descifrar en bloques de 8 bytes
   for(int i=0; i<len; i+=8){
     DES_ecb_encrypt((DES_cblock *)(ciph+i), 
                     (DES_cblock *)(ciph+i), 
@@ -36,27 +28,19 @@ void decrypt(long key, char *ciph, int len){
 }
 
 void encrypt(long key, char *ciph, int len){
-  // Preparar la llave DES
   DES_cblock des_key;
   DES_key_schedule schedule;
   
-  // Convertir long a DES key con paridad
   long k = 0;
   for(int i=0; i<8; ++i){
     key <<= 1;
     k += (key & (0xFE << i*8));
   }
   
-  // Copiar a DES_cblock
   memcpy(&des_key, &k, 8);
-  
-  // Establecer paridad
   DES_set_odd_parity(&des_key);
-  
-  // Crear key schedule
   DES_set_key_unchecked(&des_key, &schedule);
   
-  // Cifrar en bloques de 8 bytes
   for(int i=0; i<len; i+=8){
     DES_ecb_encrypt((DES_cblock *)(ciph+i), 
                     (DES_cblock *)(ciph+i), 
@@ -65,8 +49,7 @@ void encrypt(long key, char *ciph, int len){
   }
 }
 
-// ==================== Utilidades para archivo y padding ====================
-// Lee archivo completo en memoria en binario y devuelve el buffer y longitud
+// ==================== Utilidades ====================
 static unsigned char* read_file_all(const char *path, size_t *out_len){
   *out_len = 0;
   FILE *f = fopen(path, "rb");
@@ -75,9 +58,6 @@ static unsigned char* read_file_all(const char *path, size_t *out_len){
   long sz = ftell(f);
   if(sz < 0){ perror("ftell"); fclose(f); return NULL; }
   rewind(f);
-
-  if(sz == 0){
-  }
 
   unsigned char *buf = (unsigned char*)malloc((size_t)sz);
   if(!buf){ perror("malloc"); fclose(f); return NULL; }
@@ -94,7 +74,6 @@ static unsigned char* read_file_all(const char *path, size_t *out_len){
   return buf;
 }
 
-// Escribe el buffer completo en binario
 static int write_file_all(const char *path, const unsigned char *buf, size_t len){
   FILE *f = fopen(path, "wb");
   if(!f){ perror("fopen output"); return -1; }
@@ -104,7 +83,6 @@ static int write_file_all(const char *path, const unsigned char *buf, size_t len
   return 0;
 }
 
-// Aplicar padding para DES bloques de 8. Devuelve nuevo buffer y longitud
 static unsigned char* pkcs7_pad_8(const unsigned char *in, size_t in_len, size_t *out_len){
   const size_t block = 8;
   size_t pad = block - (in_len % block);
@@ -118,7 +96,6 @@ static unsigned char* pkcs7_pad_8(const unsigned char *in, size_t in_len, size_t
   return out;
 }
 
-// ==================== Cifrar archivo ====================
 static long parse_key(const char *s){
   char *end = NULL;
   unsigned long v = strtoul(s, &end, 0);
@@ -145,7 +122,6 @@ static int encrypt_file_with_key(long key, const char *inpath, const char *outpa
     return -1;
   }
 
-  // Cifrado encrypt() usa char* y longitud múltiplo de 8
   encrypt(key, (char*)padded, (int)padded_len);
 
   int rc = write_file_all(outpath, padded, padded_len);
@@ -157,7 +133,8 @@ static int encrypt_file_with_key(long key, const char *inpath, const char *outpa
   return rc;
 }
 
-char search[] = " the ";
+// Variable global para la palabra clave de búsqueda
+char search[256] = "test"; 
 
 int tryKey(long key, char *ciph, int len){
   char temp[len+1];
@@ -167,13 +144,9 @@ int tryKey(long key, char *ciph, int len){
   return strstr((char *)temp, search) != NULL;
 }
 
-unsigned char cipher[] = {108, 245, 65, 63, 125, 200, 150, 66, 17, 170, 207, 170, 34, 31, 70, 215, 0};
-
 // ==================== main ====================
 int main(int argc, char *argv[]){
-
-  // COMPILAR: mpicc -O2 -o bruteforce bruteforce.c -lcrypto
-  // CIFRADO: ./bruteforce -e <llave> <input.txt> <cifrado.des>
+  
   if(argc == 5 && strcmp(argv[1], "-e") == 0){
     long key = parse_key(argv[2]);
     const char *inpath  = argv[3];
@@ -181,45 +154,134 @@ int main(int argc, char *argv[]){
     return encrypt_file_with_key(key, inpath, outpath) == 0 ? 0 : 1;
   }
 
-  int N, id;
+  if(argc < 3){
+    fprintf(stderr, "Uso:\n");
+    fprintf(stderr, "  Cifrar:     ./bruteforce -e <llave> <input.txt> <output.des>\n");
+    fprintf(stderr, "  Bruteforce: mpirun -np <N> ./bruteforce <cifrado.des> <palabra> [llave_max] [modo]\n");
+    fprintf(stderr, "\nModos de distribución:\n");
+    fprintf(stderr, "  0 = Secuencial por bloques (default - distribución original)\n");
+    fprintf(stderr, "  1 = Intercalado (interleaved - distribución mejorada)\n");
+    fprintf(stderr, "\nEjemplo:\n");
+    fprintf(stderr, "  ./bruteforce -e 123456789 input.txt cifrado.des\n");
+    fprintf(stderr, "  mpirun -np 4 ./bruteforce cifrado.des test 200000000 0  # Modo secuencial\n");
+    fprintf(stderr, "  mpirun -np 4 ./bruteforce cifrado.des test 200000000 1  # Modo intercalado\n");
+    return 1;
+  }
+
+  // Leer argumentos para bruteforce
+  const char *archivo_cifrado = argv[1];
+  const char *palabra_clave = argv[2];
+  
+  // Límite superior de búsqueda
   long upper = (1L << 56);
+  if(argc >= 4){
+    upper = parse_key(argv[3]);
+  }
+  
+  // Modo de distribución (0=secuencial, 1=intercalado)
+  int mode = 0; 
+  if(argc >= 5){
+    mode = atoi(argv[4]);
+  }
+  
+  // Copiar palabra clave
+  strncpy(search, palabra_clave, sizeof(search)-1);
+  search[sizeof(search)-1] = '\0';
+
+  // Leer archivo cifrado
+  size_t cipher_len = 0;
+  unsigned char *cipher = read_file_all(archivo_cifrado, &cipher_len);
+  if(!cipher){
+    fprintf(stderr, "Error: No se pudo leer el archivo cifrado '%s'\n", archivo_cifrado);
+    return 1;
+  }
+
+  int N, id;
   long mylower, myupper;
   MPI_Status st;
   MPI_Request req;
-  int ciphlen = strlen((char *)cipher);
   MPI_Comm comm = MPI_COMM_WORLD;
 
   MPI_Init(&argc, &argv);
   MPI_Comm_size(comm, &N);
   MPI_Comm_rank(comm, &id);
 
-  long range_per_node = upper / N;
-  mylower = range_per_node * id;
-  myupper = range_per_node * (id+1) - 1;
-  if(id == N-1){
-    myupper = upper;
+  // Medir tiempo
+  double start_time, end_time, elapsed_time;
+  if(id == 0){
+    start_time = MPI_Wtime();
+    printf("===========================================\n");
+    printf("Iniciando búsqueda de llave\n");
+    printf("Archivo: %s\n", archivo_cifrado);
+    printf("Palabra clave: '%s'\n", palabra_clave);
+    printf("Rango de búsqueda: 0 a %ld\n", upper);
+    printf("Procesos: %d\n", N);
+    printf("Modo de distribución: %s\n", mode == 0 ? "Secuencial" : "Intercalado");
+    printf("===========================================\n");
   }
 
   long found = 0;
   MPI_Irecv(&found, 1, MPI_LONG, MPI_ANY_SOURCE, MPI_ANY_TAG, comm, &req);
 
-  for(long i = mylower; i < myupper && (found == 0); ++i){
-    if(tryKey(i, (char *)cipher, ciphlen)){
-      found = i;
-      for(int node = 0; node < N; node++){
-        MPI_Send(&found, 1, MPI_LONG, node, 0, MPI_COMM_WORLD);
+  // ==================== DISTRIBUCIÓN DE BÚSQUEDA ====================
+  if(mode == 0){
+    long range_per_node = upper / N;
+    mylower = range_per_node * id;
+    myupper = range_per_node * (id+1) - 1;
+    if(id == N-1){
+      myupper = upper;
+    }
+    
+    // Búsqueda secuencial en el rango asignado
+    for(long i = mylower; i < myupper && (found == 0); ++i){
+      if(tryKey(i, (char *)cipher, (int)cipher_len)){
+        found = i;
+        for(int node = 0; node < N; node++){
+          MPI_Send(&found, 1, MPI_LONG, node, 0, MPI_COMM_WORLD);
+        }
+        break;
       }
-      break;
+    }
+  }
+  else if(mode == 1){
+
+    for(long i = id; i < upper && (found == 0); i += N){
+      if(tryKey(i, (char *)cipher, (int)cipher_len)){
+        found = i;
+        for(int node = 0; node < N; node++){
+          MPI_Send(&found, 1, MPI_LONG, node, 0, MPI_COMM_WORLD);
+        }
+        break;
+      }
     }
   }
 
   if(id == 0){
     MPI_Wait(&req, &st);
-    decrypt(found, (char *)cipher, ciphlen);
-    printf("Llave encontrada: %li\n", found);
-    printf("Texto descifrado: %s\n", cipher);
+    end_time = MPI_Wtime();
+    elapsed_time = end_time - start_time;
+    
+    // Descifrar y mostrar resultado
+    char *result = (char*)malloc(cipher_len + 1);
+    memcpy(result, cipher, cipher_len);
+    result[cipher_len] = 0;
+    decrypt(found, result, (int)cipher_len);
+    
+    printf("===========================================\n");
+    printf("RESULTADO\n");
+    printf("===========================================\n");
+    printf("Llave encontrada: %ld\n", found);
+    printf("Tiempo transcurrido: %.6f segundos\n", elapsed_time);
+    printf("Procesos utilizados: %d\n", N);
+    printf("Modo usado: %s\n", mode == 0 ? "Secuencial" : "Intercalado");
+    printf("-------------------------------------------\n");
+    printf("Texto descifrado:\n%s\n", result);
+    printf("===========================================\n");
+    
+    free(result);
   }
 
+  free(cipher);
   MPI_Finalize();
   return 0;
 }
