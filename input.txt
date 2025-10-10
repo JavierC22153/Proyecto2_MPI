@@ -1,2 +1,2 @@
-test uno dos tres cuatro cinco
-prueba
+Este es el texto decifrado, si lograste decifrar el texto lo hiciste muy bien, felicidades y ya tienes la nota completa.
+La palabra clave que se dío para decifrar este texto es aguacate
